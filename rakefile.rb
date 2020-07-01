@@ -1,3 +1,5 @@
+require 'win32/registry'
+
 COMPILE_TARGET = ENV['config'].nil? ? "debug" : ENV['config']
 BUILD_VERSION = '100.0.0'
 tc_build_number = ENV["BUILD_NUMBER"]
@@ -7,8 +9,8 @@ BUILD_NUMBER = build_number
 
 desc 'Compile the code'
 task :compile => [:clean, :version] do
-  msbuild = '"C:\Program Files (x86)\MSBuild\14.0\Bin\msbuild.exe"'
-  sh "#{msbuild} src/FubuCore.sln /property:Configuration=#{COMPILE_TARGET} /v:m /t:rebuild /nr:False /maxcpucount:8"
+  msbuildExePath = getMsbuildToolsPath("14.0")
+  sh "#{msbuildExePath} src/FubuCore.sln /property:Configuration=#{COMPILE_TARGET} /v:m /t:rebuild /nr:False /maxcpucount:8"
 end
 
 desc 'Run the unit tests'
@@ -57,4 +59,26 @@ task :version do
     file.write "[assembly: AssemblyFileVersion(\"#{options[:file_version]}\")]\n"
     file.write "[assembly: AssemblyInformationalVersion(\"#{options[:informational_version]}\")]\n"
   end
+end
+
+
+def self.getMsbuildToolsPath(msbuildToolsVersion)
+  # Try the old way to find MSBuild 14.0
+  Win32::Registry::HKEY_LOCAL_MACHINE.open("Software\\Microsoft\\MSBuild\\ToolsVersions") do |reg|
+    reg.each_key do |k,v|
+      next unless (k.downcase == msbuildToolsVersion.downcase)
+      reg.open(k) do |subkey|
+        exePath = subkey['MSBuildToolsPath']
+        return "\"#{exePath}msbuild.exe\""
+      end
+    end
+  end
+
+  puts "Didn't find MSBuild 14 in the registry. Attempting to find MSBuild 15 in Visual Studio install folder"
+
+  # Try the new way with VS2017 and VS2019 to find MSBuild 15
+  vs_install_path = `"C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe" -latest -products * -requires Microsoft.Component.MSBuild -property installationPath`
+  puts "Visual Studio install path found: #{vs_install_path}"
+  vs_install_path = vs_install_path.chomp
+  return "\"#{vs_install_path}\\MSBuild\\15.0\\Bin\"msbuild.exe\\"
 end
